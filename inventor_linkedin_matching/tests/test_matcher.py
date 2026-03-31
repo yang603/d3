@@ -24,7 +24,6 @@ from inventor_linkedin_matching.matcher import InventorLinkedInMatcher, MatchCon
 from inventor_linkedin_matching.name_utils import (
     normalize_name,
     name_similarity,
-    names_are_nickname_equivalent,
     initial_match,
     jaro_winkler,
 )
@@ -105,15 +104,6 @@ class TestNameUtils:
         score = jaro_winkler("johnathan", "jonathan")
         assert score > 0.90
 
-    def test_nickname_equivalent_william_bill(self):
-        assert names_are_nickname_equivalent("william", "bill") is True
-
-    def test_nickname_equivalent_robert_bob(self):
-        assert names_are_nickname_equivalent("robert", "bob") is True
-
-    def test_nickname_not_equivalent(self):
-        assert names_are_nickname_equivalent("william", "james") is False
-
     def test_initial_match_j_john(self):
         assert initial_match("J", "John") is True
 
@@ -125,10 +115,6 @@ class TestNameUtils:
 
     def test_name_similarity_exact(self):
         assert name_similarity("Smith", "Smith") == 1.0
-
-    def test_name_similarity_nickname(self):
-        score = name_similarity("William", "Bill")
-        assert score == 0.95
 
     def test_name_similarity_initial(self):
         score = name_similarity("J", "John")
@@ -232,13 +218,14 @@ class TestInventorLinkedInMatcher:
         assert result.is_match is True
         assert result.score >= 0.90
 
-    def test_nickname_match(self):
-        """Bill == William: should still match with strong supporting fields."""
+    def test_nickname_no_longer_boosted(self):
+        """Bill vs William now uses Jaro-Winkler (no nickname map)."""
         inventor = make_inventor(first_name="William", last_name="Smith", state="CA", assignee="Acme Technologies Inc.")
         profile = make_profile(first_name="Bill", last_name="Smith", location_state="CA", current_company="Acme Technologies")
         result = self.matcher.score_pair(inventor, profile)
-        assert result.is_match is True
-        assert result.first_name_score == 0.95
+        # JW("william", "bill") < 0.75 → fails first_name gate
+        assert result.is_match is False
+        assert result.first_name_score < 0.75
 
     def test_initial_match_with_state_and_company(self):
         """W. Smith in CA at Acme → should match William Smith in CA at Acme."""
@@ -261,8 +248,8 @@ class TestInventorLinkedInMatcher:
 
     def test_state_full_name_vs_abbreviation(self):
         """Inventor has 'California', LinkedIn has 'CA'."""
-        inventor = make_inventor(state="California")
-        profile = make_profile(location_state="CA")
+        inventor = make_inventor(first_name="William", state="California")
+        profile = make_profile(first_name="William", location_state="CA")
         result = self.matcher.score_pair(inventor, profile)
         assert result.state_score == 1.0
 
@@ -416,10 +403,9 @@ class TestEndToEndScenario:
         matched_pairs = {(r.inventor.inventor_id, r.profile.profile_id) for r in results}
 
         expected_pairs = {
-            ("inv-001", "li-001"),
-            ("inv-002", "li-002"),
-            ("inv-004", "li-004"),
-            ("inv-005", "li-005"),
+            ("inv-002", "li-002"),  # Robert/Robert — exact
+            ("inv-003", "li-003"),  # J/James — initial match
+            ("inv-005", "li-005"),  # Michael/Michael — exact
         }
         for pair in expected_pairs:
             assert pair in matched_pairs, f"Expected match {pair} not found"

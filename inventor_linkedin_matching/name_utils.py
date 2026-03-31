@@ -1,84 +1,12 @@
 """
 Name normalization and similarity utilities.
 
-Implements Jaro-Winkler similarity, initial matching, and common
-nickname expansion used in inventor disambiguation.
+Implements Jaro-Winkler similarity and initial matching for inventor disambiguation.
 """
 
 import re
 import unicodedata
 from typing import Optional
-
-# Common English nicknames mapping: canonical -> set of nicknames / aliases
-# e.g. "william" -> {"bill", "will", "billy", "willy"}
-NICKNAME_MAP: dict[str, set[str]] = {
-    "william": {"bill", "will", "billy", "willy", "liam"},
-    "robert": {"rob", "bob", "bobby", "robbie", "bert"},
-    "james": {"jim", "jimmy", "jamie"},
-    "john": {"jack", "johnny", "jon"},
-    "richard": {"rick", "rich", "dick", "ricky"},
-    "charles": {"charlie", "chuck", "chas"},
-    "thomas": {"tom", "tommy"},
-    "michael": {"mike", "mick", "mickey"},
-    "joseph": {"joe", "joey"},
-    "david": {"dave", "davy"},
-    "george": {"georgie"},
-    "edward": {"ed", "eddie", "ned", "ted", "teddy"},
-    "henry": {"hal", "hank", "harry"},
-    "andrew": {"andy", "drew"},
-    "christopher": {"chris"},
-    "daniel": {"dan", "danny"},
-    "matthew": {"matt", "matty"},
-    "anthony": {"tony"},
-    "donald": {"don", "donnie"},
-    "kenneth": {"ken", "kenny"},
-    "stephen": {"steve", "stevie"},
-    "steven": {"steve", "stevie"},
-    "patrick": {"pat", "paddy"},
-    "peter": {"pete"},
-    "harold": {"hal", "harry"},
-    "gerald": {"gerry", "jerry"},
-    "raymond": {"ray"},
-    "frank": {"frankie"},
-    "francis": {"frank", "fran"},
-    "walter": {"walt"},
-    "lawrence": {"larry"},
-    "albert": {"al", "bert"},
-    "fred": {"freddie"},
-    "frederick": {"fred", "freddie", "fritz"},
-    "leonard": {"len", "lenny"},
-    "arthur": {"art"},
-    "samuel": {"sam", "sammy"},
-    "elizabeth": {"liz", "beth", "eliza", "lizzie", "betty", "bette"},
-    "margaret": {"meg", "maggie", "peggy", "marge"},
-    "katherine": {"kate", "kathy", "katie", "kay"},
-    "catherine": {"kate", "kathy", "cathy", "cat"},
-    "patricia": {"pat", "patty", "trish"},
-    "barbara": {"barb", "barbie"},
-    "virginia": {"ginny", "ginger"},
-    "dorothy": {"dot", "dottie"},
-    "helen": {"nell", "nelly"},
-    "jennifer": {"jen", "jenny"},
-    "jessica": {"jess", "jessie"},
-    "melissa": {"mel"},
-    "stephanie": {"steph"},
-    "carol": {"carrie"},
-    "deborah": {"deb", "debbie"},
-    "susan": {"sue", "suzy"},
-    "angela": {"angie"},
-    "michelle": {"shelly", "mimi"},
-    "kimberly": {"kim"},
-    "amanda": {"mandy"},
-    "anna": {"annie", "ann"},
-    "anne": {"annie", "ann"},
-}
-
-# Build reverse lookup: alias -> canonical
-_ALIAS_TO_CANONICAL: dict[str, str] = {}
-for _canonical, _aliases in NICKNAME_MAP.items():
-    _ALIAS_TO_CANONICAL[_canonical] = _canonical
-    for _alias in _aliases:
-        _ALIAS_TO_CANONICAL[_alias] = _canonical
 
 
 def normalize_name(name: Optional[str]) -> str:
@@ -94,19 +22,6 @@ def normalize_name(name: Optional[str]) -> str:
     name = name.lower()
     name = re.sub(r"[^a-z\s]", "", name)
     return name.strip()
-
-
-def canonical_first_name(name: str) -> str:
-    """Return the canonical form of a first name (resolves nicknames)."""
-    norm = normalize_name(name)
-    return _ALIAS_TO_CANONICAL.get(norm, norm)
-
-
-def names_are_nickname_equivalent(a: str, b: str) -> bool:
-    """Return True if a and b map to the same canonical first name."""
-    if not a or not b:
-        return False
-    return canonical_first_name(a) == canonical_first_name(b)
 
 
 def initial_match(a: str, b: str) -> bool:
@@ -190,9 +105,8 @@ def jaro_winkler(s1: str, s2: str, prefix_weight: float = 0.1) -> float:
 
 def name_similarity(a: Optional[str], b: Optional[str]) -> float:
     """
-    Compute a composite name similarity score in [0, 1]:
+    Compute a name similarity score in [0, 1]:
       - 1.0  exact match (after normalization)
-      - 0.95 nickname / canonical equivalence
       - 0.90 initial match
       - Jaro-Winkler similarity otherwise
     """
@@ -201,8 +115,6 @@ def name_similarity(a: Optional[str], b: Optional[str]) -> float:
         return 0.0
     if na == nb:
         return 1.0
-    if names_are_nickname_equivalent(na, nb):
-        return 0.95
     if initial_match(na, nb):
         return 0.90
     return jaro_winkler(na, nb)
