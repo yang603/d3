@@ -246,6 +246,49 @@ class TestInventorLinkedInMatcher:
         result = self.matcher.score_pair(inventor, profile)
         assert result.company_score >= 0.80
 
+    def test_ultimate_parent_company_match(self):
+        """Assignee matches ultimate_parent_company_name even when company_name differs."""
+        inventor = make_inventor(
+            first_name="William", last_name="Smith", state="CA",
+            assignee="Alphabet Inc.",
+        )
+        profile = LinkedInProfile(
+            profile_id="li-ult",
+            first_name="William", last_name="Smith",
+            location_state="CA",
+            current_company="Google DeepMind",          # company_name — no direct match
+            ultimate_parent_companies=["Alphabet"],     # ultimate_parent_company_name — matches
+        )
+        result = self.matcher.score_pair(inventor, profile)
+        assert result.is_match is True
+        assert result.company_score >= 0.80
+
+    def test_company_score_takes_best_of_name_and_parent(self):
+        """company_score is the max across company_name and ultimate_parent_company_name."""
+        inventor = make_inventor(
+            first_name="William", last_name="Smith", state="CA",
+            assignee="Acme Technologies",
+        )
+        profile_direct = LinkedInProfile(
+            profile_id="li-direct",
+            first_name="William", last_name="Smith",
+            location_state="CA",
+            current_company="Acme Technologies",
+            ultimate_parent_companies=["Unrelated Holdings"],
+        )
+        profile_parent = LinkedInProfile(
+            profile_id="li-parent",
+            first_name="William", last_name="Smith",
+            location_state="CA",
+            current_company="Unrelated Subsidiary",
+            ultimate_parent_companies=["Acme Technologies"],
+        )
+        result_direct = self.matcher.score_pair(inventor, profile_direct)
+        result_parent = self.matcher.score_pair(inventor, profile_parent)
+        # Both should score equally well — the best match wins regardless of which field
+        assert result_direct.company_score >= 0.90
+        assert result_parent.company_score >= 0.90
+
     def test_state_full_name_vs_abbreviation(self):
         """Inventor has 'California', LinkedIn has 'CA'."""
         inventor = make_inventor(first_name="William", state="California")

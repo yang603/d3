@@ -37,26 +37,32 @@ class InventorRecord:
 class LinkedInProfile:
     """
     Represents a LinkedIn profile record.
+
+    company_name and ultimate_parent_company_name map directly to the
+    LinkedIn data columns of the same name. A profile may have multiple
+    positions; pass all distinct values as lists.
     """
 
-    profile_id: str                         # Unique LinkedIn profile identifier
-    first_name: str                         # First name on LinkedIn
-    last_name: str                          # Last name on LinkedIn
-    current_company: Optional[str] = None   # Current employer
-    past_companies: list = field(default_factory=list)  # Past employers
-    location_state: Optional[str] = None    # US state (abbreviated or full)
-    location_city: Optional[str] = None     # City
-    headline: Optional[str] = None          # LinkedIn headline/title
+    profile_id: str                                          # Unique LinkedIn profile identifier
+    first_name: str                                          # First name on LinkedIn
+    last_name: str                                           # Last name on LinkedIn
+    current_company: Optional[str] = None                   # Most recent company_name
+    past_companies: list = field(default_factory=list)       # Older company_name values
+    ultimate_parent_companies: list = field(default_factory=list)  # All ultimate_parent_company_name values
+    location_state: Optional[str] = None                    # US state (abbreviated or full)
+    location_city: Optional[str] = None                     # City
+    headline: Optional[str] = None                          # LinkedIn headline/title
 
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}".strip()
 
     def all_companies(self) -> list:
-        """Return all companies (current + past) for matching."""
+        """Return all company names (current, past, and ultimate parents) for matching."""
         companies = []
         if self.current_company:
             companies.append(self.current_company)
         companies.extend(self.past_companies)
+        companies.extend(self.ultimate_parent_companies)
         return companies
 
 
