@@ -2,25 +2,18 @@
 Core inventor-LinkedIn matching algorithm.
 
 Design principles (inspired by USPTO InventorDisambiguator):
-  - Multi-attribute matching: first name, last name, state, company.
-  - Two matching tiers:
-      STRONG match  — last name exact/near-exact AND first name matches AND
-                      (state OR company matches)
-      WEAK match    — last name exact/near-exact AND first name initial matches AND
-                      state AND company both match
-  - Configurable per-field weights and thresholds.
+  - Three hard gates: last name, first name, and state must all pass.
+  - Company similarity is the sole continuous ranking signal among survivors.
+  - Configurable thresholds for each gate.
   - Returns ranked list of MatchResult objects.
 
-Scoring formula
----------------
-  score = w_ln * ln_score
-        + w_fn * fn_score
-        + w_state * state_score
-        + w_company * company_score
-
-Weights sum to 1.0.  Default weights reflect the relative discriminative
-power of each field observed in the InventorDisambiguator codebase
-(last name > first name > company ≈ state).
+Matching logic
+--------------
+  1. last_name similarity  >= last_name_threshold  (hard gate, fast exit)
+  2. first_name similarity >= first_name_threshold (hard gate, fast exit)
+  3. state must match exactly                      (hard gate, bypassed if either side is missing)
+  4. score = company_similarity                    (ranking signal only)
+  5. is_match = True when all gates pass AND score >= match_threshold
 """
 
 from dataclasses import dataclass
@@ -40,40 +33,30 @@ class MatchConfig:
     """
     Configuration for the InventorLinkedInMatcher.
 
-    Field weights
-    -------------
-    Must sum to 1.0.  Adjust to reflect your data quality:
-      - Increase w_company if patent assignees are reliable.
-      - Decrease w_state if LinkedIn locations are often missing.
+    Gates (hard pass/fail)
+    ----------------------
+    last_name_threshold : minimum last-name similarity to proceed.
+    first_name_threshold: minimum first-name similarity to proceed.
+    state_threshold     : required state match score (binary 1.0/0.0).
+                          Gate is bypassed when either side has no state data.
 
-    Thresholds
-    ----------
-    match_threshold     : minimum composite score to be considered a match.
-    last_name_threshold : minimum last-name score to proceed (hard gate).
-    first_name_threshold: minimum first-name score to proceed (hard gate).
+    Ranking
+    -------
+    Company similarity is the sole score used to rank survivors.
+    match_threshold sets a minimum company score floor (default 0.0 = accept all
+    gate-passing pairs regardless of company data).
     """
 
-    # --- Field weights (must sum to 1.0) ---
-    w_last_name: float = 0.40
-    w_first_name: float = 0.30
-    w_state: float = 0.15
-    w_company: float = 0.15
-
-    # --- Score thresholds ---
-    match_threshold: float = 0.70       # minimum to classify as a match
+    # --- Gate thresholds ---
     last_name_threshold: float = 0.80   # hard gate: skip if LN too dissimilar
     first_name_threshold: float = 0.50  # hard gate: skip if FN too dissimilar
+    state_threshold: float = 1.0        # hard gate: state must match exactly
+
+    # --- Company score floor (ranking signal) ---
+    match_threshold: float = 0.0        # minimum company score to classify as a match
 
     # --- Output ---
     top_k: Optional[int] = None         # Return only top-k results (None = all)
-
-    def __post_init__(self) -> None:
-        total = self.w_last_name + self.w_first_name + self.w_state + self.w_company
-        if abs(total - 1.0) > 1e-9:
-            raise ValueError(
-                f"Field weights must sum to 1.0, got {total:.4f}. "
-                "Adjust w_last_name, w_first_name, w_state, w_company."
-            )
 
 
 class InventorLinkedInMatcher:
@@ -193,49 +176,35 @@ class InventorLinkedInMatcher:
                 is_match=False,
             )
 
-        # --- State ---
+        # --- State (hard gate) ---
+        # Bypass if either side has no state data (avoid penalising missing fields).
         st_score = state_match_score(inventor.state, profile.location_state)
+        if inventor.state and profile.location_state and st_score < cfg.state_threshold:
+            return MatchResult(
+                inventor=inventor,
+                profile=profile,
+                score=0.0,
+                first_name_score=fn_score,
+                last_name_score=ln_score,
+                state_score=st_score,
+                is_match=False,
+            )
 
-        # --- Company ---
+        # --- Company (sole ranking signal) ---
         co_score = best_company_match(inventor.assignee, profile.all_companies())
 
-        # --- Composite score ---
-        composite = (
-            cfg.w_last_name * ln_score
-            + cfg.w_first_name * fn_score
-            + cfg.w_state * st_score
-            + cfg.w_company * co_score
-        )
-
-        # Apply two-tier matching logic (mirroring InventorDisambiguator):
-        # STRONG: full name match + at least one corroborating field
-        # WEAK:   first-initial + state + company both match
-        strong_match = (
-            ln_score >= 0.92
-            and fn_score >= 0.80
-            and (st_score >= 1.0 or co_score >= 0.70)
-        )
-        weak_match = (
-            ln_score >= 0.80
-            and fn_score >= 0.50  # allows initial match
-            and st_score >= 1.0
-            and co_score >= 0.60
-        )
-
-        is_match = composite >= cfg.match_threshold or strong_match or weak_match
+        is_match = co_score >= cfg.match_threshold
 
         logger.debug(
-            "inventor=%s | profile=%s | ln=%.3f fn=%.3f st=%.3f co=%.3f "
-            "composite=%.3f strong=%s weak=%s is_match=%s",
+            "inventor=%s | profile=%s | ln=%.3f fn=%.3f st=%.3f co=%.3f is_match=%s",
             inventor.inventor_id, profile.profile_id,
-            ln_score, fn_score, st_score, co_score,
-            composite, strong_match, weak_match, is_match,
+            ln_score, fn_score, st_score, co_score, is_match,
         )
 
         return MatchResult(
             inventor=inventor,
             profile=profile,
-            score=composite,
+            score=co_score,
             first_name_score=fn_score,
             last_name_score=ln_score,
             state_score=st_score,

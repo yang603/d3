@@ -306,12 +306,12 @@ class TestInventorLinkedInMatcher:
         assert result.is_match is False
 
     def test_same_name_different_state_and_company(self):
-        """Same name but wrong state and company → borderline, should not match."""
+        """Same name but wrong state → state hard gate rejects the pair."""
         inventor = make_inventor(first_name="John", last_name="Smith", state="CA", assignee="Acme Inc.")
         profile = make_profile(first_name="John", last_name="Smith", location_state="NY", current_company="Boeing")
         result = self.matcher.score_pair(inventor, profile)
-        # Composite score driven down by state=0 and low company score
-        assert result.score < 0.80
+        assert result.is_match is False
+        assert result.score == 0.0
 
     def test_partial_last_name_below_threshold(self):
         """'Smyth' vs 'Smith': Jaro-Winkler is high but let's verify gating works."""
@@ -325,16 +325,14 @@ class TestInventorLinkedInMatcher:
     # --- Configuration tests ---
 
     def test_custom_threshold(self):
-        """Raising threshold to 0.99 should eliminate borderline matches."""
+        """Raising company threshold to 0.99 should reject pairs with unrelated companies."""
         strict_config = MatchConfig(match_threshold=0.99)
         strict_matcher = InventorLinkedInMatcher(config=strict_config)
-        inventor = make_inventor(first_name="W", last_name="Smith", state="CA", assignee="Acme Inc.")
-        profile = make_profile(first_name="William", last_name="Smith", location_state="CA", current_company="Acme Technologies")
+        inventor = make_inventor(first_name="William", last_name="Smith", state="CA", assignee="Acme Corp")
+        profile = make_profile(first_name="William", last_name="Smith", location_state="CA", current_company="Boeing")
         result = strict_matcher.score_pair(inventor, profile)
-        # composite cannot reach 0.99 with initial-match first name
-        # (but strong_match / weak_match logic may still fire)
-        # Just verify the method runs without error
-        assert isinstance(result.is_match, bool)
+        # "Acme Corp" vs "Boeing" company score is well below 0.99
+        assert result.is_match is False
 
     def test_top_k(self):
         """top_k=1 limits match_one to at most one result."""
@@ -348,10 +346,6 @@ class TestInventorLinkedInMatcher:
         ]
         results = matcher.match_one(inventor, profiles)
         assert len(results) <= 1
-
-    def test_invalid_weights_raise(self):
-        with pytest.raises(ValueError, match="sum to 1.0"):
-            MatchConfig(w_last_name=0.5, w_first_name=0.5, w_state=0.5, w_company=0.5)
 
     # --- Pre-filter tests ---
 
