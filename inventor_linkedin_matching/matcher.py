@@ -48,8 +48,8 @@ class MatchConfig:
     """
 
     # --- Gate thresholds ---
-    last_name_threshold: float = 0.80   # hard gate: skip if LN too dissimilar
-    first_name_threshold: float = 0.50  # hard gate: skip if FN too dissimilar
+    last_name_threshold: float = 0.75   # hard gate: skip if LN too dissimilar
+    first_name_threshold: float = 0.75  # hard gate: skip if FN too dissimilar
     state_threshold: float = 1.0        # hard gate: state must match exactly
 
     # --- Company score floor (ranking signal) ---
